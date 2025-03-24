@@ -36,7 +36,7 @@ router.get("/me", auth, async (req, res, next) => {
     try {
         const user = await userRepository.findOne({
             where: { id: req.user?.userId },
-            select: ["id", "name", "email"] // Excluimos el password
+            select: ["id", "name", "email", "createdAt", "updatedAt"] // Incluimos los timestamps
         });
 
         if (!user) {
@@ -44,65 +44,6 @@ router.get("/me", auth, async (req, res, next) => {
         }
 
         res.json(ApiResponseBuilder.success(user));
-    } catch (error) {
-        next(error);
-    }
-});
-
-// Obtener todos los usuarios (protegido)
-router.get("/", auth, async (req, res, next) => {
-    try {
-        const users = await userRepository.find();
-        res.json(ApiResponseBuilder.success(users));
-    } catch (error) {
-        next(error);
-    }
-});
-
-// Obtener un usuario por ID (protegido)
-router.get("/:id", auth, async (req, res, next) => {
-    try {
-        const user = await userRepository.findOneBy({ id: parseInt(req.params.id) });
-        if (!user) {
-            throw new NotFoundError("Usuario no encontrado");
-        }
-        res.json(ApiResponseBuilder.success(user));
-    } catch (error) {
-        next(error);
-    }
-});
-
-// Actualizar usuario (protegido)
-router.put("/:id", auth, async (req, res, next) => {
-    try {
-        const { name, email } = req.body;
-        const user = await userRepository.findOneBy({ id: parseInt(req.params.id) });
-        
-        if (!user) {
-            throw new NotFoundError("Usuario no encontrado");
-        }
-
-        user.name = name;
-        user.email = email;
-        
-        await userRepository.save(user);
-        res.json(ApiResponseBuilder.success(user));
-    } catch (error) {
-        next(error);
-    }
-});
-
-// Eliminar usuario (protegido)
-router.delete("/:id", auth, async (req, res, next) => {
-    try {
-        const user = await userRepository.findOneBy({ id: parseInt(req.params.id) });
-        
-        if (!user) {
-            throw new NotFoundError("Usuario no encontrado");
-        }
-
-        await userRepository.remove(user);
-        res.json(ApiResponseBuilder.success({ message: "Usuario eliminado exitosamente" }));
     } catch (error) {
         next(error);
     }

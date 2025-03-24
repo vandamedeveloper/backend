@@ -2,7 +2,7 @@ import express from "express";
 import { AppDataSource } from "./data-source";
 import userRoutes from "./routes/userRoutes";
 import todoRoutes from "./routes/todoRoutes";
-import { errorHandler } from "./middleware/errorHandler";
+import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -12,6 +12,9 @@ app.use(express.json());
 // Rutas
 app.use("/api/users", userRoutes);
 app.use("/api/todos", todoRoutes);
+
+// Middleware para rutas no encontradas (404)
+app.use(notFoundHandler);
 
 // Middleware de manejo de errores
 app.use(errorHandler);

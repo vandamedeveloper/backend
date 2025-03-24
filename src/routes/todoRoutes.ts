@@ -2,49 +2,102 @@ import { Router } from "express";
 import { AppDataSource } from "../data-source";
 import { Todo } from "../entity/Todo";
 import { User } from "../entity/User";
+import { auth } from "../middleware/auth";
+import { ApiResponseBuilder } from "../types/response";
+import { NotFoundError, ForbiddenError, ValidationError } from "../types/errors";
 
 const router = Router();
 const todoRepository = AppDataSource.getRepository(Todo);
 const userRepository = AppDataSource.getRepository(User);
 
 // Crear todo
-router.post("/", async (req, res) => {
+router.post("/", auth, async (req, res, next) => {
     try {
-        const { title, description, userId } = req.body;
-        const user = await userRepository.findOneBy({ id: userId });
+        const { title, description, completed = false } = req.body;
+
+        if (!title || title.trim() === '') {
+            throw new ValidationError('El título es requerido');
+        }
+        if (!description || description.trim() === '') {
+            throw new ValidationError('La descripción es requerida');
+        }
+
+        const user = await userRepository.findOneBy({ id: req.user?.userId });
 
         if (!user) {
-            return res.status(404).json({ error: "Usuario no encontrado" });
+            throw new NotFoundError("Usuario no encontrado");
         }
 
         const todo = todoRepository.create({
-            title,
-            description,
+            title: title.trim(),
+            description: description.trim(),
+            completed,
             user
         });
 
         await todoRepository.save(todo);
-        res.status(201).json({ message: "Todo creado exitosamente" });
+        
+        const todoResponse = {
+            id: todo.id,
+            title: todo.title,
+            description: todo.description,
+            completed: todo.completed,
+            createdAt: todo.createdAt,
+            updatedAt: todo.updatedAt
+        };
+
+        res.status(201).json(ApiResponseBuilder.success(todoResponse));
     } catch (error) {
-        res.status(500).json({ error: "Error al crear el todo" });
+        next(error);
     }
 });
 
-// Obtener todos los todos de un usuario
-router.get("/user/:userId", async (req, res) => {
+// Obtener todos los todos del usuario autenticado
+router.get("/", auth, async (req, res, next) => {
     try {
-        const todos = await todoRepository.find({
-            where: { user: { id: parseInt(req.params.userId) } },
-            relations: ["user"]
+        const page = parseInt(req.query.page as string) || 1;
+        const limit = parseInt(req.query.limit as string) || 2;
+        const order = ((req.query.order as string)?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC') as 'ASC' | 'DESC';
+        const skip = (page - 1) * limit;
+
+        const [todos, total] = await todoRepository.findAndCount({
+            where: { user: { id: req.user?.userId } },
+            skip,
+            take: limit,
+            order: {
+                updatedAt: order
+            }
         });
-        res.json(todos);
+
+        const totalPages = Math.ceil(total / limit);
+
+        const todosResponse = todos.map(todo => ({
+            id: todo.id,
+            title: todo.title,
+            description: todo.description,
+            completed: todo.completed,
+            createdAt: todo.createdAt,
+            updatedAt: todo.updatedAt
+        }));
+
+        const meta = {
+            total,
+            page,
+            limit,
+            totalPages,
+            hasNextPage: page < totalPages,
+            hasPreviousPage: page > 1,
+            order
+        };
+
+        res.json(ApiResponseBuilder.success(todosResponse, meta));
     } catch (error) {
-        res.status(500).json({ error: "Error al obtener los todos" });
+        next(error);
     }
 });
 
 // Obtener un todo por ID
-router.get("/:id", async (req, res) => {
+router.get("/:id", auth, async (req, res, next) => {
     try {
         const todo = await todoRepository.findOne({
             where: { id: parseInt(req.params.id) },
@@ -52,48 +105,86 @@ router.get("/:id", async (req, res) => {
         });
         
         if (!todo) {
-            return res.status(404).json({ error: "Todo no encontrado" });
+            throw new NotFoundError("Todo no encontrado");
         }
-        res.json(todo);
+
+        if (todo.user.id !== req.user?.userId) {
+            throw new ForbiddenError("No tienes permiso para ver este todo");
+        }
+
+        const todoResponse = {
+            id: todo.id,
+            title: todo.title,
+            description: todo.description,
+            completed: todo.completed,
+            createdAt: todo.createdAt,
+            updatedAt: todo.updatedAt
+        };
+
+        res.json(ApiResponseBuilder.success(todoResponse));
     } catch (error) {
-        res.status(500).json({ error: "Error al obtener el todo" });
+        next(error);
     }
 });
 
 // Actualizar todo
-router.put("/:id", async (req, res) => {
+router.put("/:id", auth, async (req, res, next) => {
     try {
         const { title, description, completed } = req.body;
-        const todo = await todoRepository.findOneBy({ id: parseInt(req.params.id) });
+        const todo = await todoRepository.findOne({
+            where: { id: parseInt(req.params.id) },
+            relations: ["user"]
+        });
         
         if (!todo) {
-            return res.status(404).json({ error: "Todo no encontrado" });
+            throw new NotFoundError("Todo no encontrado");
         }
 
-        todo.title = title;
-        todo.description = description;
-        todo.completed = completed;
+        if (todo.user.id !== req.user?.userId) {
+            throw new ForbiddenError("No tienes permiso para modificar este todo");
+        }
+
+        if (title) todo.title = title.trim();
+        if (description) todo.description = description.trim();
+        if (typeof completed === 'boolean') todo.completed = completed;
         
         await todoRepository.save(todo);
-        res.json({ message: "Todo actualizado exitosamente" });
+
+        const todoResponse = {
+            id: todo.id,
+            title: todo.title,
+            description: todo.description,
+            completed: todo.completed,
+            createdAt: todo.createdAt,
+            updatedAt: todo.updatedAt
+        };
+
+        res.json(ApiResponseBuilder.success(todoResponse));
     } catch (error) {
-        res.status(500).json({ error: "Error al actualizar el todo" });
+        next(error);
     }
 });
 
 // Eliminar todo
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", auth, async (req, res, next) => {
     try {
-        const todo = await todoRepository.findOneBy({ id: parseInt(req.params.id) });
+        const todo = await todoRepository.findOne({
+            where: { id: parseInt(req.params.id) },
+            relations: ["user"]
+        });
         
         if (!todo) {
-            return res.status(404).json({ error: "Todo no encontrado" });
+            throw new NotFoundError("Todo no encontrado");
+        }
+
+        if (todo.user.id !== req.user?.userId) {
+            throw new ForbiddenError("No tienes permiso para eliminar este todo");
         }
 
         await todoRepository.remove(todo);
-        res.json({ message: "Todo eliminado exitosamente" });
+        res.json(ApiResponseBuilder.success({ message: "Todo eliminado exitosamente" }));
     } catch (error) {
-        res.status(500).json({ error: "Error al eliminar el todo" });
+        next(error);
     }
 });
 

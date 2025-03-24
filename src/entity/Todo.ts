@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne } from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, CreateDateColumn, UpdateDateColumn } from "typeorm";
 import { User } from "./User";
 
 @Entity()
@@ -14,6 +14,12 @@ export class Todo {
 
     @Column({ default: false })
     completed!: boolean;
+
+    @CreateDateColumn()
+    createdAt!: Date;
+
+    @UpdateDateColumn()
+    updatedAt!: Date;
 
     @ManyToOne(() => User, user => user.todos)
     user!: User;
